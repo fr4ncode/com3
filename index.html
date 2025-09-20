@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Conexión Serial Simple</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 20px auto;
+            padding: 20px;
+        }
+        .container {
+            border: 1px solid #ccc;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        .status {
+            padding: 10px;
+            margin-bottom: 15px;
+            border-radius: 5px;
+        }
+        .connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        button {
+            padding: 8px 15px;
+            margin: 5px;
+            cursor: pointer;
+        }
+        .data-display {
+            margin-top: 20px;
+        }
+        .data-item {
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Conexión Serial COM3</h1>
+        
+        <div id="status" class="status disconnected">
+            Desconectado
+        </div>
+        
+        <button id="connectBtn">Conectar a COM3</button>
+        <button id="disconnectBtn" disabled>Desconectar</button>
+        <button id="resetBtn" disabled>Resetear</button>
+        
+        <div class="data-display">
+            <div class="data-item">
+                <strong>Tiempo:</strong> <span id="timeValue">0:00</span>
+            </div>
+            <div class="data-item">
+                <strong>T. Error:</strong> <span id="errorTimeValue">0.00</span>
+            </div>
+            <div class="data-item">
+                <strong>Errores:</strong> <span id="errorsValue">00</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Variable para el puerto (puedes cambiarlo a COM4 si es necesario)
+        const puertoTijera = "COM3";
+        
+        // Elementos de la interfaz
+        const statusElement = document.getElementById('status');
+        const connectBtn = document.getElementById('connectBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const timeValue = document.getElementById('timeValue');
+        const errorTimeValue = document.getElementById('errorTimeValue');
+        const errorsValue = document.getElementById('errorsValue');
+        
+        // Variables para la conexión serial
+        let port = null;
+        let reader = null;
+        let readInterval = null;
+        
+        // Función para conectar al puerto serial
+        async function connectToSerial() {
+            try {
+                // Solicitar puerto al usuario
+                port = await navigator.serial.requestPort();
+                
+                // Abrir el puerto con la configuración adecuada
+                await port.open({ baudRate: 9600, dataBits: 8, stopBits: 1, parity: "none" });
+                
+                // Actualizar interfaz
+                statusElement.textContent = `Conectado a ${puertoTijera}`;
+                statusElement.className = 'status connected';
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+                resetBtn.disabled = false;
+                
+                // Iniciar la lectura de datos
+                readData();
+                
+            } catch (error) {
+                console.error('Error al conectar:', error);
+                statusElement.textContent = `Error: ${error.message}`;
+            }
+        }
+        
+        // Función para leer datos del puerto serial
+        async function readData() {
+            try {
+                const decoder = new TextDecoder();
+                
+                while (port.readable) {
+                    reader = port.readable.getReader();
+                    
+                    try {
+                        while (true) {
+                            const { value, done } = await reader.read();
+                            if (done) break;
+                            
+                            // Procesar los datos recibidos
+                            const data = decoder.decode(value);
+                            processData(data);
+                        }
+                    } catch (error) {
+                        console.error('Error leyendo datos:', error);
+                    } finally {
+                        reader.releaseLock();
+                    }
+                }
+            } catch (error) {
+                console.error('Error en lectura:', error);
+            }
+        }
+        
+        // Función para procesar los datos recibidos (similar a tu código Java)
+        function processData(data) {
+            // Limpiar y formatear datos
+            data = data.trim();
+            
+            if (data.length === 8) {
+                // Formatear tiempo (primeros 3 caracteres)
+                const minutos = data.substring(0, 1);
+                const segundos = data.substring(1, 3);
+                timeValue.textContent = `${minutos}:${segundos}`;
+                
+                // Formatear tiempo de error (siguientes 3 caracteres)
+                const segundosError = data.substring(3, 4);
+                const centesimasError = data.substring(4, 6);
+                errorTimeValue.textContent = `${segundosError}.${centesimasError}`;
+                
+                // Errores (últimos 2 caracteres)
+                errorsValue.textContent = data.substring(6, 8);
+            }
+        }
+        
+        // Función para desconectar
+        async function disconnect() {
+            if (reader) {
+                await reader.cancel();
+            }
+            
+            if (port) {
+                await port.close();
+            }
+            
+            // Actualizar interfaz
+            statusElement.textContent = 'Desconectado';
+            statusElement.className = 'status disconnected';
+            connectBtn.disabled = false;
+            disconnectBtn.disabled = true;
+            resetBtn.disabled = true;
+        }
+        
+        // Función para resetear (enviar comando 'R' al dispositivo)
+        async function resetDevice() {
+            if (port && port.writable) {
+                const writer = port.writable.getWriter();
+                const encoder = new TextEncoder();
+                
+                // Enviar comando de reset (equivalente a "R" en tu código Java)
+                await writer.write(encoder.encode("R"));
+                writer.releaseLock();
+                
+                // Resetear valores en pantalla
+                timeValue.textContent = '0:00';
+                errorTimeValue.textContent = '0.00';
+                errorsValue.textContent = '00';
+            }
+        }
+        
+        // Event listeners para los botones
+        connectBtn.addEventListener('click', connectToSerial);
+        disconnectBtn.addEventListener('click', disconnect);
+        resetBtn.addEventListener('click', resetDevice);
+        
+        // Verificar si la Web Serial API está disponible
+        if ('serial' in navigator) {
+            console.log('Web Serial API está disponible');
+        } else {
+            statusElement.textContent = 'Web Serial API no disponible. Usa Chrome/Edge.';
+            connectBtn.disabled = true;
+        }
+    </script>
+</body>
+</html>
